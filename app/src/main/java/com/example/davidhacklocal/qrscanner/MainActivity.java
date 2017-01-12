@@ -15,6 +15,8 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.text.method.LinkMovementMethod;
 import android.util.DisplayMetrics;
+import android.util.Log;
+import android.webkit.URLUtil;
 import android.widget.TextView;
 import android.widget.Toast;
 import com.google.zxing.Result;
@@ -61,16 +63,82 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
         //Handle result here
         String resultString = result.getText();
 
-        if(resultString.startsWith("MATMSG") && resultString.endsWith(";;")) { //Email QR Code
+        if(URLUtil.isValidUrl(resultString)) { //URL
+            url(resultString);
+        }else if(resultString.startsWith("MATMSG") && resultString.endsWith(";;")) { //Email QR Code
             email(resultString);
-        }else if(resultString.startsWith("BEGIN:VCARD") /*&& resultString.endsWith("END:VCARD")*/){ //Contact QR Code
+        }else if(resultString.startsWith("SMSTO:")) { //SMS
+            sms(resultString);
+        }else if(resultString.startsWith("BEGIN:VCARD") && resultString.endsWith("END:VCARD\n")){ //Contact QR Code
             contact(resultString);
         }else{ //Link/Text QR Code
             text(resultString);
         }
     }
 
-    public void email(String result){
+    private void url(final String result){ //Handles simple URL
+        TextView textView = customTextView(result);
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Result - URL")
+                .setPositiveButton("Visit", new DialogInterface.OnClickListener() { //Send email
+                    public void onClick(DialogInterface dialog, int id) {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(result));
+                        startActivity(intent);
+                        ScannerView.resumeCameraPreview(MainActivity.this); //Resume scanning
+                    }
+                })
+                .setNegativeButton("Copy", new DialogInterface.OnClickListener() { //Copy contents
+                    public void onClick(DialogInterface dialog, int id) {
+                        copyText(result);
+                        ScannerView.resumeCameraPreview(MainActivity.this); //Resume scanning
+                    }
+                })
+                .setNeutralButton("Close", new DialogInterface.OnClickListener() { //Exit dialog
+                    public void onClick(DialogInterface dialog, int id) {
+                        ScannerView.resumeCameraPreview(MainActivity.this); //Resume scanning
+                    }
+                })
+                .setView(textView);
+        AlertDialog alertDialog = builder.create();
+        alertDialog.setCanceledOnTouchOutside(false);
+        alertDialog.show();
+    }
+
+    public void sms(String result){ //handles a SMS result
+        final String num = result.substring(6, result.indexOf(":",6));
+        final String message = result.substring(result.indexOf(":",6) + 1 , result.length());
+        final String description = "Number: " + num + "\nMessage: " + message;
+
+        TextView textView = customTextView(description);
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Result - SMS")
+                .setPositiveButton("Send", new DialogInterface.OnClickListener() { //Send email
+                    public void onClick(DialogInterface dialog, int id) {
+                        Intent intent = new Intent(Intent.ACTION_SENDTO);
+                        intent.setData(Uri.parse("smsto:"+num));
+                        intent.putExtra("sms_body", message);
+                        startActivity(Intent.createChooser(intent, "Send Email"));
+                        ScannerView.resumeCameraPreview(MainActivity.this); //Resume scanning
+                    }
+                })
+                .setNegativeButton("Copy", new DialogInterface.OnClickListener() { //Copy contents
+                    public void onClick(DialogInterface dialog, int id) {
+                        copyText(description);
+                        ScannerView.resumeCameraPreview(MainActivity.this); //Resume scanning
+                    }
+                })
+                .setNeutralButton("Close", new DialogInterface.OnClickListener() { //Exit dialog
+                    public void onClick(DialogInterface dialog, int id) {
+                        ScannerView.resumeCameraPreview(MainActivity.this); //Resume scanning
+                    }
+                })
+                .setView(textView);
+        AlertDialog alertDialog = builder.create();
+        alertDialog.setCanceledOnTouchOutside(false);
+        alertDialog.show();
+    }
+
+    public void email(String result){ //Handles a MATMSG result (email)
         final String to = result.substring(10, result.indexOf(";SUB:"));
         final String subject = result.substring(result.indexOf(";SUB:")+5, result.indexOf(";BODY:"));
         final String body = result.substring(result.indexOf(";BODY:")+6, result.length()-2);
@@ -81,8 +149,8 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
         builder.setTitle("Result - Email")
                 .setPositiveButton("Send", new DialogInterface.OnClickListener() { //Send email
                     public void onClick(DialogInterface dialog, int id) {
-                        Intent intent = new Intent(Intent.ACTION_SEND);
-                        intent.setType("text/html");
+                        Intent intent = new Intent(Intent.ACTION_SENDTO);
+                        intent.setData(Uri.parse("mailto:"));
                         intent.putExtra(Intent.EXTRA_EMAIL, new String[] {to});
                         intent.putExtra(Intent.EXTRA_SUBJECT, subject);
                         intent.putExtra(Intent.EXTRA_TEXT, body);
@@ -107,7 +175,7 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
         alertDialog.show();
     }
 
-    public void contact(final String result){
+    public void contact(final String result){ //Handles a vCard result
         TextView textView = customTextView(result);
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Result - vCard")
@@ -147,7 +215,7 @@ public class MainActivity extends AppCompatActivity implements ZXingScannerView.
         alertDialog.show();
     }
 
-    public void text(final String result){
+    public void text(final String result){ //handles a normal text result or URL
         TextView textView = customTextView(result);
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Result - Text")
